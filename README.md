@@ -122,6 +122,41 @@ App routes:
 3. Open `/dashboard` and verify stats/table fields populate.
 4. Open `/chat` and test tool-triggering prompts (semantic + aggregate + ride-id).
 
+## CLI Smoke Test
+
+RideIQ includes a CLI testing utility to validate ingest + query flows without using the browser.
+
+Run with upload + full flow:
+
+```bash
+npm run cli:test -- --file assets/sample-rapido-invoice.pdf --question "How much did I spend this month?"
+```
+
+Run without upload (query existing records only):
+
+```bash
+npm run cli:test -- --skip-upload --question "Which captain drove me the most?"
+```
+
+Optional flags:
+
+- `--base-url http://localhost:3000` (defaults to local dev server)
+- `--file <path-to-pdf>`
+- `--question "..."`
+- `--skip-upload`
+
+## Debug Logging
+
+Backend routes and core services emit structured JSON logs for each major stage (request receipt, external API calls, DB actions, tool usage, and failures).
+
+Set log verbosity with:
+
+```bash
+RIDEIQ_LOG_LEVEL=debug
+```
+
+Supported levels: `debug`, `info`, `warn`, `error`.
+
 ## Deployment Notes (Vercel)
 
 - Keep API routes on Node runtime.

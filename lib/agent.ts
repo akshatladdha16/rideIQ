@@ -4,6 +4,7 @@ import { createReactAgent } from "@langchain/langgraph/prebuilt";
 import { z } from "zod";
 
 import { generateEmbedding } from "@/lib/embeddings";
+import { logger } from "@/lib/logger";
 import {
   getSupabaseAdminClient,
   SAFE_SQL_INTENTS,
@@ -31,18 +32,27 @@ function isSqlIntent(intent: string): intent is SqlIntent {
 }
 
 async function fetchInvoicesForAnalytics(): Promise<InvoiceRecord[]> {
+  logger.debug("agent", "Fetching invoices for analytics tool");
   const supabase = getSupabaseAdminClient();
   const { data, error } = await supabase.from("invoices").select("*");
 
   if (error) {
+    logger.error("agent", "Failed to fetch invoices for analytics", {
+      error: error.message,
+    });
     throw new Error(`Failed to fetch invoices: ${error.message}`);
   }
+
+  logger.debug("agent", "Fetched invoices for analytics", {
+    count: data?.length ?? 0,
+  });
 
   return (data ?? []) as InvoiceRecord[];
 }
 
 const vectorSearchTool = tool(
   async ({ query }) => {
+    logger.info("agent.vector_search", "Tool invoked", { query });
     const supabase = getSupabaseAdminClient();
     const embedding = await generateEmbedding(query);
 
@@ -53,8 +63,15 @@ const vectorSearchTool = tool(
     });
 
     if (error) {
+      logger.error("agent.vector_search", "RPC match_invoice_chunks failed", {
+        error: error.message,
+      });
       throw new Error(`vector_search failed: ${error.message}`);
     }
+
+    logger.info("agent.vector_search", "Tool completed", {
+      resultCount: data?.length ?? 0,
+    });
 
     return {
       query,
@@ -78,7 +95,9 @@ const vectorSearchTool = tool(
 
 const sqlQueryTool = tool(
   async ({ intent }) => {
+    logger.info("agent.sql_query", "Tool invoked", { intent });
     if (!isSqlIntent(intent)) {
+      logger.warn("agent.sql_query", "Unsupported intent requested", { intent });
       return {
         error: "Unsupported sql_query intent",
         available_intents: SAFE_SQL_INTENTS,
@@ -92,18 +111,22 @@ const sqlQueryTool = tool(
         const total = round2(
           invoices.reduce((sum, inv) => sum + (inv.total_fare ?? 0), 0)
         );
-        return {
+        const output = {
           intent,
           sql: "SELECT SUM(total_fare) AS total FROM invoices",
           rows: [{ total }],
         };
+        logger.info("agent.sql_query", "Intent completed", { intent, rows: 1 });
+        return output;
       }
       case "ride_count": {
-        return {
+        const output = {
           intent,
           sql: "SELECT COUNT(*) AS count FROM invoices",
           rows: [{ count: invoices.length }],
         };
+        logger.info("agent.sql_query", "Intent completed", { intent, rows: 1 });
+        return output;
       }
       case "avg_fare": {
         const fares = invoices
@@ -112,11 +135,13 @@ const sqlQueryTool = tool(
         const avg = fares.length
           ? round2(fares.reduce((a, b) => a + b, 0) / fares.length)
           : 0;
-        return {
+        const output = {
           intent,
           sql: "SELECT ROUND(AVG(total_fare)::numeric, 2) AS avg FROM invoices",
           rows: [{ avg }],
         };
+        logger.info("agent.sql_query", "Intent completed", { intent, rows: 1 });
+        return output;
       }
       case "avg_fare_per_km": {
         const ratios = invoices
@@ -125,11 +150,13 @@ const sqlQueryTool = tool(
         const avg_per_km = ratios.length
           ? round2(ratios.reduce((a, b) => a + b, 0) / ratios.length)
           : 0;
-        return {
+        const output = {
           intent,
           sql: "SELECT ROUND(AVG(total_fare / NULLIF(distance_km,0))::numeric, 2) AS avg_per_km FROM invoices",
           rows: [{ avg_per_km }],
         };
+        logger.info("agent.sql_query", "Intent completed", { intent, rows: 1 });
+        return output;
       }
       case "total_gst": {
         const total_gst = round2(
@@ -143,11 +170,13 @@ const sqlQueryTool = tool(
             0
           )
         );
-        return {
+        const output = {
           intent,
           sql: "SELECT ROUND(SUM(cgst_ride + sgst_ride + cgst_platform + sgst_platform)::numeric, 2) AS total_gst FROM invoices",
           rows: [{ total_gst }],
         };
+        logger.info("agent.sql_query", "Intent completed", { intent, rows: 1 });
+        return output;
       }
       case "by_month": {
         const map = new Map<string, { month: string; rides: number; spend: number }>();
@@ -166,11 +195,13 @@ const sqlQueryTool = tool(
           .sort((a, b) => a.month.localeCompare(b.month))
           .map((row) => ({ ...row, spend: round2(row.spend) }));
 
-        return {
+        const output = {
           intent,
           sql: "SELECT TO_CHAR(ride_date, 'YYYY-MM') AS month, COUNT(*) AS rides, SUM(total_fare) AS spend FROM invoices GROUP BY 1 ORDER BY 1",
           rows,
         };
+        logger.info("agent.sql_query", "Intent completed", { intent, rows: rows.length });
+        return output;
       }
       case "by_payment_mode": {
         const map = new Map<
@@ -194,11 +225,13 @@ const sqlQueryTool = tool(
           .sort((a, b) => b.rides - a.rides)
           .map((row) => ({ ...row, spend: round2(row.spend) }));
 
-        return {
+        const output = {
           intent,
           sql: "SELECT payment_mode, COUNT(*) AS rides, SUM(total_fare) AS spend FROM invoices GROUP BY 1 ORDER BY 2 DESC",
           rows,
         };
+        logger.info("agent.sql_query", "Intent completed", { intent, rows: rows.length });
+        return output;
       }
       case "top_routes": {
         const map = new Map<
@@ -236,11 +269,13 @@ const sqlQueryTool = tool(
           .sort((a, b) => b.rides - a.rides)
           .slice(0, 5);
 
-        return {
+        const output = {
           intent,
           sql: "SELECT pickup_area, dropoff_area, COUNT(*) AS rides, ROUND(AVG(total_fare)::numeric,2) AS avg_fare FROM invoices GROUP BY 1,2 ORDER BY 3 DESC LIMIT 5",
           rows,
         };
+        logger.info("agent.sql_query", "Intent completed", { intent, rows: rows.length });
+        return output;
       }
       case "top_captains": {
         const map = new Map<
@@ -273,11 +308,13 @@ const sqlQueryTool = tool(
           .sort((a, b) => b.rides - a.rides)
           .slice(0, 5);
 
-        return {
+        const output = {
           intent,
           sql: "SELECT captain_name, COUNT(*) AS rides, ROUND(AVG(total_fare)::numeric,2) AS avg_fare FROM invoices GROUP BY 1 ORDER BY 2 DESC LIMIT 5",
           rows,
         };
+        logger.info("agent.sql_query", "Intent completed", { intent, rows: rows.length });
+        return output;
       }
       case "longest_rides": {
         const rows = invoices
@@ -292,11 +329,13 @@ const sqlQueryTool = tool(
             total_fare: inv.total_fare,
           }));
 
-        return {
+        const output = {
           intent,
           sql: "SELECT ride_date, pickup_area, dropoff_area, distance_km, total_fare FROM invoices ORDER BY distance_km DESC LIMIT 5",
           rows,
         };
+        logger.info("agent.sql_query", "Intent completed", { intent, rows: rows.length });
+        return output;
       }
       case "most_expensive": {
         const rows = invoices
@@ -311,11 +350,13 @@ const sqlQueryTool = tool(
             payment_mode: inv.payment_mode,
           }));
 
-        return {
+        const output = {
           intent,
           sql: "SELECT ride_date, pickup_area, dropoff_area, total_fare, payment_mode FROM invoices ORDER BY total_fare DESC LIMIT 5",
           rows,
         };
+        logger.info("agent.sql_query", "Intent completed", { intent, rows: rows.length });
+        return output;
       }
       case "fastest_rides": {
         const rows = invoices
@@ -330,13 +371,16 @@ const sqlQueryTool = tool(
             distance_km: inv.distance_km,
           }));
 
-        return {
+        const output = {
           intent,
           sql: "SELECT ride_date, pickup_area, dropoff_area, duration_mins, distance_km FROM invoices ORDER BY duration_mins ASC LIMIT 5",
           rows,
         };
+        logger.info("agent.sql_query", "Intent completed", { intent, rows: rows.length });
+        return output;
       }
       default:
+        logger.warn("agent.sql_query", "Fallback unsupported intent branch", { intent });
         return {
           error: "Unsupported sql_query intent",
           available_intents: SAFE_SQL_INTENTS,
@@ -355,6 +399,7 @@ const sqlQueryTool = tool(
 
 const getInvoiceDetailTool = tool(
   async ({ ride_id }) => {
+    logger.info("agent.get_invoice_detail", "Tool invoked", { rideId: ride_id });
     const supabase = getSupabaseAdminClient();
     const { data, error } = await supabase
       .from("invoices")
@@ -363,8 +408,17 @@ const getInvoiceDetailTool = tool(
       .single();
 
     if (error) {
+      logger.error("agent.get_invoice_detail", "Query failed", {
+        rideId: ride_id,
+        error: error.message,
+      });
       throw new Error(`get_invoice_detail failed: ${error.message}`);
     }
+
+    logger.info("agent.get_invoice_detail", "Tool completed", {
+      rideId: ride_id,
+      found: Boolean(data),
+    });
 
     return {
       ride_id,
@@ -386,8 +440,11 @@ export function getRideIqAgent(): ReturnType<typeof createReactAgent> {
   if (!agentInstance) {
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
+      logger.error("agent", "OPENAI_API_KEY missing during agent initialization");
       throw new Error("Missing environment variable: OPENAI_API_KEY");
     }
+
+    logger.info("agent", "Initializing RideIQ LangGraph agent");
 
     agentInstance = createReactAgent({
       llm: new ChatOpenAI({ model: "gpt-4o", temperature: 0, apiKey }),

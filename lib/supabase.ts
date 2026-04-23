@@ -1,11 +1,14 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
+import { logger } from "@/lib/logger";
+
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 function ensureEnv(value: string | undefined, name: string): string {
   if (!value) {
+    logger.error("supabase", "Missing required environment variable", { name });
     throw new Error(`Missing environment variable: ${name}`);
   }
   return value;
@@ -16,6 +19,7 @@ let adminClient: SupabaseClient | null = null;
 
 export function getSupabaseBrowserClient(): SupabaseClient {
   if (!browserClient) {
+    logger.info("supabase", "Initializing browser supabase client");
     browserClient = createClient(
       ensureEnv(supabaseUrl, "NEXT_PUBLIC_SUPABASE_URL"),
       ensureEnv(supabaseAnonKey, "NEXT_PUBLIC_SUPABASE_ANON_KEY")
@@ -26,6 +30,7 @@ export function getSupabaseBrowserClient(): SupabaseClient {
 
 export function getSupabaseAdminClient(): SupabaseClient {
   if (!adminClient) {
+    logger.info("supabase", "Initializing admin supabase client");
     adminClient = createClient(
       ensureEnv(supabaseUrl, "NEXT_PUBLIC_SUPABASE_URL"),
       ensureEnv(supabaseServiceRoleKey, "SUPABASE_SERVICE_ROLE_KEY"),

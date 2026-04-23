@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 
+import { logger } from "@/lib/logger";
 import { RapidoInvoiceData } from "@/lib/types";
 
 let openaiClient: OpenAI | null = null;
@@ -8,8 +9,11 @@ function getOpenAIClient(): OpenAI {
   if (!openaiClient) {
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
+      logger.error("embeddings", "OPENAI_API_KEY missing during client initialization");
       throw new Error("Missing environment variable: OPENAI_API_KEY");
     }
+
+    logger.info("embeddings", "Initializing OpenAI embeddings client");
     openaiClient = new OpenAI({ apiKey });
   }
 
@@ -17,9 +21,14 @@ function getOpenAIClient(): OpenAI {
 }
 
 export async function generateEmbedding(text: string): Promise<number[]> {
+  logger.debug("embeddings", "Generating embedding", { textLength: text.length });
   const res = await getOpenAIClient().embeddings.create({
     model: "text-embedding-3-small",
     input: text,
+  });
+
+  logger.debug("embeddings", "Embedding generated", {
+    vectorLength: res.data[0].embedding.length,
   });
 
   return res.data[0].embedding;

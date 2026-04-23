@@ -1,6 +1,7 @@
 import { AIMessage, HumanMessage, type BaseMessage } from "@langchain/core/messages";
 
 import { getRideIqAgent } from "@/lib/agent";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -29,8 +30,13 @@ function getErrorMessage(error: unknown): string {
 }
 
 export async function POST(request: Request): Promise<Response> {
+  logger.info("api.agent", "Agent request received");
   const body = (await request.json()) as { messages?: ChatInputMessage[] };
   const messages = toLangChainMessages(body.messages ?? []);
+  logger.debug("api.agent", "Prepared LangChain messages", {
+    inputMessages: body.messages?.length ?? 0,
+    convertedMessages: messages.length,
+  });
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -38,6 +44,7 @@ export async function POST(request: Request): Promise<Response> {
 
       try {
         const agent = getRideIqAgent();
+        logger.info("api.agent", "Streaming agent events started");
         const eventStream = agent.streamEvents({ messages }, { version: "v2" });
 
         for await (const event of eventStream) {
@@ -58,6 +65,9 @@ export async function POST(request: Request): Promise<Response> {
           }
 
           if (event.event === "on_tool_start") {
+            logger.info("api.agent", "Tool execution started", {
+              tool: event.name,
+            });
             controller.enqueue(
               encoder.encode(
                 `data: ${JSON.stringify({ type: "tool_start", tool: event.name })}\n\n`
@@ -67,7 +77,11 @@ export async function POST(request: Request): Promise<Response> {
         }
 
         controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+        logger.info("api.agent", "Streaming agent events completed");
       } catch (error: unknown) {
+        logger.error("api.agent", "Agent stream failed", {
+          error: getErrorMessage(error),
+        });
         controller.enqueue(
           encoder.encode(
             `data: ${JSON.stringify({ type: "error", message: getErrorMessage(error) })}\n\n`

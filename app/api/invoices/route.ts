@@ -1,4 +1,5 @@
 import { getSupabaseAdminClient } from "@/lib/supabase";
+import { logger } from "@/lib/logger";
 import type { DashboardStats, InvoiceRecord } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -56,10 +57,17 @@ function computeStats(invoices: InvoiceRecord[]): DashboardStats {
 
 export async function GET(request: Request): Promise<Response> {
   try {
+    logger.info("api.invoices", "Invoices request received");
     const { searchParams } = new URL(request.url);
     const month = parseMonth(searchParams.get("month"));
     const payment = searchParams.get("payment");
     const query = searchParams.get("query")?.trim().toLowerCase();
+
+    logger.debug("api.invoices", "Parsed request filters", {
+      month: month?.from ? `${month.from}:${month.to}` : null,
+      payment,
+      query,
+    });
 
     const supabase = getSupabaseAdminClient();
 
@@ -79,10 +87,15 @@ export async function GET(request: Request): Promise<Response> {
     const { data, error } = await requestBuilder;
 
     if (error) {
+      logger.error("api.invoices", "Supabase query failed", {
+        error: error.message,
+      });
       throw new Error(error.message);
     }
 
     const rows = (data ?? []) as InvoiceRecord[];
+    logger.debug("api.invoices", "Fetched invoice rows", { count: rows.length });
+
     const filtered = query
       ? rows.filter((inv) => {
           const pickup = inv.pickup_area?.toLowerCase() ?? "";
@@ -99,6 +112,10 @@ export async function GET(request: Request): Promise<Response> {
         })
       : rows;
 
+    logger.debug("api.invoices", "Computed filtered rows", {
+      count: filtered.length,
+    });
+
     const paymentModes = Array.from(
       new Set(rows.map((inv) => inv.payment_mode).filter((mode): mode is string => !!mode))
     ).sort((a, b) => a.localeCompare(b));
@@ -109,7 +126,9 @@ export async function GET(request: Request): Promise<Response> {
       paymentModes,
     });
   } catch (error: unknown) {
-    console.error("Invoices route error:", error);
+    logger.error("api.invoices", "Invoices request failed", {
+      error: getErrorMessage(error),
+    });
     return Response.json({ error: getErrorMessage(error) }, { status: 500 });
   }
 }

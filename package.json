@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "cli:test": "node scripts/cli-test.mjs",
+    "cli:ocr": "node scripts/ocr-extract.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.1",

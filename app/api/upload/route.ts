@@ -1,5 +1,6 @@
 import { buildChunkText, generateEmbedding } from "@/lib/embeddings";
 import { extractRapidoInvoice } from "@/lib/docstrange";
+import { logger } from "@/lib/logger";
 import { getSupabaseAdminClient } from "@/lib/supabase";
 
 export const runtime = "nodejs";
@@ -15,22 +16,40 @@ function getErrorMessage(error: unknown): string {
 
 export async function POST(request: Request): Promise<Response> {
   try {
+    logger.info("api.upload", "Upload request received");
     const formData = await request.formData();
     const file = formData.get("file");
 
     if (!(file instanceof File)) {
+      logger.warn("api.upload", "Missing file in form data");
       return Response.json({ error: "No file provided" }, { status: 400 });
     }
 
     if (file.type !== "application/pdf") {
+      logger.warn("api.upload", "Rejected non-PDF file", {
+        fileName: file.name,
+        mimeType: file.type,
+      });
       return Response.json({ error: "Only PDF files are supported" }, { status: 400 });
     }
 
+    logger.info("api.upload", "Starting OCR extraction", {
+      fileName: file.name,
+      fileSize: file.size,
+    });
     const extracted = await extractRapidoInvoice(file, file.name);
+
+    logger.debug("api.upload", "Building embedding chunk text", {
+      rideId: extracted.ride_id,
+    });
     const chunkText = buildChunkText(extracted);
+    logger.debug("api.upload", "Generating embedding", {
+      chunkLength: chunkText.length,
+    });
     const embedding = await generateEmbedding(chunkText);
 
     const supabase = getSupabaseAdminClient();
+    logger.info("api.upload", "Inserting invoice row");
     const { data: invoice, error: invoiceError } = await supabase
       .from("invoices")
       .insert({
@@ -64,15 +83,25 @@ export async function POST(request: Request): Promise<Response> {
 
     if (invoiceError) {
       if (invoiceError.code === "23505") {
+        logger.warn("api.upload", "Duplicate invoice detected", {
+          fileName: file.name,
+          rideId: extracted.ride_id,
+        });
         return Response.json(
           { error: "This invoice has already been uploaded." },
           { status: 409 }
         );
       }
 
+      logger.error("api.upload", "Invoice insert failed", {
+        error: invoiceError.message,
+      });
       throw new Error(invoiceError.message);
     }
 
+    logger.info("api.upload", "Inserting invoice chunk row", {
+      invoiceId: invoice.id,
+    });
     const { error: chunkError } = await supabase.from("invoice_chunks").insert({
       invoice_id: invoice.id,
       chunk_text: chunkText,
@@ -89,12 +118,22 @@ export async function POST(request: Request): Promise<Response> {
     });
 
     if (chunkError) {
-      console.warn("Embedding chunk insert failed:", chunkError.message);
+      logger.warn("api.upload", "Embedding chunk insert failed", {
+        invoiceId: invoice.id,
+        error: chunkError.message,
+      });
     }
+
+    logger.info("api.upload", "Upload pipeline completed", {
+      invoiceId: invoice.id,
+      rideId: extracted.ride_id,
+    });
 
     return Response.json({ success: true, invoice });
   } catch (error: unknown) {
-    console.error("Upload error:", error);
+    logger.error("api.upload", "Upload request failed", {
+      error: getErrorMessage(error),
+    });
     return Response.json({ error: getErrorMessage(error) }, { status: 500 });
   }
 }
