@@ -1,0 +1,80 @@
+@import "tw-animate-css";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 43 40% 98%;
+    --foreground: 200 54% 10%;
+    --card: 0 0% 100%;
+    --card-foreground: 200 54% 10%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 200 54% 10%;
+    --primary: 195 85% 34%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 46 70% 93%;
+    --secondary-foreground: 200 54% 20%;
+    --muted: 200 25% 94%;
+    --muted-foreground: 200 14% 35%;
+    --accent: 176 62% 90%;
+    --accent-foreground: 182 75% 24%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 200 22% 86%;
+    --input: 200 22% 86%;
+    --ring: 195 85% 34%;
+    --radius: 0.625rem;
+  }
+
+  .dark {
+    --background: 206 46% 10%;
+    --foreground: 42 36% 96%;
+    --card: 206 44% 13%;
+    --card-foreground: 42 36% 96%;
+    --popover: 206 44% 13%;
+    --popover-foreground: 42 36% 96%;
+    --primary: 185 70% 52%;
+    --primary-foreground: 206 46% 10%;
+    --secondary: 206 22% 18%;
+    --secondary-foreground: 42 36% 96%;
+    --muted: 206 22% 18%;
+    --muted-foreground: 200 12% 74%;
+    --accent: 176 52% 24%;
+    --accent-foreground: 180 30% 92%;
+    --destructive: 0 63% 49%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 206 22% 24%;
+    --input: 206 22% 24%;
+    --ring: 185 70% 52%;
+  }
+
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+
+  html {
+    @apply font-sans;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: "Space Grotesk", "Avenir Next", "Segoe UI", sans-serif;
+  }
+
+  body {
+    font-family: "Source Sans 3", "Trebuchet MS", "Segoe UI", sans-serif;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
