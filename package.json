@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "cli:test": "node scripts/cli-test.mjs",
-    "cli:ocr": "node scripts/ocr-extract.mjs"
+    "cli:ocr": "node scripts/ocr-extract.mjs",
+    "cli:agent": "node scripts/agent-chat.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.1",

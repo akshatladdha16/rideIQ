@@ -41,6 +41,10 @@ export async function POST(request: Request): Promise<Response> {
   const stream = new ReadableStream({
     async start(controller) {
       const encoder = new TextEncoder();
+      let tokenEvents = 0;
+      let responseChars = 0;
+      let assistantResponse = "";
+      const toolsUsed = new Set<string>();
 
       try {
         const agent = getRideIqAgent();
@@ -56,6 +60,10 @@ export async function POST(request: Request): Promise<Response> {
           ) {
             const chunk = event.data.chunk as { content?: unknown };
             if (typeof chunk.content === "string" && chunk.content.length > 0) {
+              tokenEvents += 1;
+              responseChars += chunk.content.length;
+              assistantResponse += chunk.content;
+
               controller.enqueue(
                 encoder.encode(
                   `data: ${JSON.stringify({ type: "token", text: chunk.content })}\n\n`
@@ -65,6 +73,9 @@ export async function POST(request: Request): Promise<Response> {
           }
 
           if (event.event === "on_tool_start") {
+            if (event.name) {
+              toolsUsed.add(event.name);
+            }
             logger.info("api.agent", "Tool execution started", {
               tool: event.name,
             });
@@ -74,13 +85,32 @@ export async function POST(request: Request): Promise<Response> {
               )
             );
           }
+
+          if (event.event === "on_tool_end") {
+            logger.info("api.agent", "Tool execution completed", {
+              tool: event.name,
+            });
+            controller.enqueue(
+              encoder.encode(
+                `data: ${JSON.stringify({ type: "tool_end", tool: event.name })}\n\n`
+              )
+            );
+          }
         }
 
         controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-        logger.info("api.agent", "Streaming agent events completed");
+        logger.info("api.agent", "Streaming agent events completed", {
+          tokenEvents,
+          responseChars,
+          toolsUsed: Array.from(toolsUsed),
+          responsePreview: assistantResponse.slice(0, 200),
+        });
       } catch (error: unknown) {
         logger.error("api.agent", "Agent stream failed", {
           error: getErrorMessage(error),
+          tokenEvents,
+          responseChars,
+          toolsUsed: Array.from(toolsUsed),
         });
         controller.enqueue(
           encoder.encode(

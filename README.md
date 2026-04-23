@@ -157,6 +157,20 @@ RIDEIQ_LOG_LEVEL=debug
 
 Supported levels: `debug`, `info`, `warn`, `error`.
 
+## Agent CLI Test
+
+Run agent-only question testing against existing Supabase data:
+
+```bash
+npm run cli:agent -- --base-url http://localhost:3000 --question "Which captain drove me the most?"
+```
+
+Optional live token printing:
+
+```bash
+npm run cli:agent -- --question "How much did I spend this month?" --print-tokens
+```
+
 ## Deployment Notes (Vercel)
 
 - Keep API routes on Node runtime.
