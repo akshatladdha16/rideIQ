@@ -120,15 +120,30 @@ export async function GET(request: Request): Promise<Response> {
       new Set(rows.map((inv) => inv.payment_mode).filter((mode): mode is string => !!mode))
     ).sort((a, b) => a.localeCompare(b));
 
-    return Response.json({
-      invoices: filtered,
-      stats: computeStats(filtered),
-      paymentModes,
-    });
+    return Response.json(
+      {
+        invoices: filtered,
+        stats: computeStats(filtered),
+        paymentModes,
+      },
+      {
+        headers: {
+          "Cache-Control": "no-store, max-age=0",
+        },
+      }
+    );
   } catch (error: unknown) {
     logger.error("api.invoices", "Invoices request failed", {
       error: getErrorMessage(error),
     });
-    return Response.json({ error: getErrorMessage(error) }, { status: 500 });
+    return Response.json(
+      { error: getErrorMessage(error) },
+      {
+        status: 500,
+        headers: {
+          "Cache-Control": "no-store, max-age=0",
+        },
+      }
+    );
   }
 }

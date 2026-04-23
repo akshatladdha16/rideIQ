@@ -150,6 +150,34 @@ function amountFromBillDetails(value: unknown, label: string): number | null {
   return null;
 }
 
+function amountFromBillDetailsByMatcher(
+  value: unknown,
+  matcher: (description: string) => boolean
+): number | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  for (const item of value) {
+    const row = toRecord(item);
+    if (!row) {
+      continue;
+    }
+
+    const description = toText(row.description)?.toLowerCase();
+    if (!description || !matcher(description)) {
+      continue;
+    }
+
+    const amount = toNumber(row.amount);
+    if (amount !== null) {
+      return amount;
+    }
+  }
+
+  return null;
+}
+
 function parseDateFromNaturalText(value: string | null): string | null {
   if (!value) {
     return null;
@@ -240,10 +268,9 @@ function pullFromPayload(payload: LooseRecord): Partial<RapidoInvoiceData> {
     pickup: pickup ?? null,
     dropoff: dropoff ?? null,
     pickup_area:
-      toText(payload.pickup_area) ?? extractArea(pickup) ?? toText(payload.pickup_location) ?? null,
+      toText(payload.pickup_area) ?? toText(payload.pickup_location) ?? null,
     dropoff_area:
       toText(payload.dropoff_area) ??
-      extractArea(dropoff) ??
       toText(payload.dropoff_location) ??
       null,
     distance_km:
@@ -262,13 +289,21 @@ function pullFromPayload(payload: LooseRecord): Partial<RapidoInvoiceData> {
       amountFromBillDetails(payload.bill_details, "ride charge") ??
       amountFromBillDetails(tspInvoice?.bill_details, "ride charge"),
     booking_fee:
+      amountFromBillDetailsByMatcher(platformInvoice?.bill_details, (description) =>
+        description.includes("booking fee") && !description.includes("convenience")
+      ) ??
       toNumber(payload.booking_fee) ??
-      amountFromBillDetails(payload.bill_details, "booking fee") ??
-      amountFromBillDetails(platformInvoice?.bill_details, "booking fee"),
+      amountFromBillDetailsByMatcher(payload.bill_details, (description) =>
+        description.includes("booking fee") && !description.includes("convenience")
+      ),
     convenience_charges:
+      amountFromBillDetailsByMatcher(platformInvoice?.bill_details, (description) =>
+        description.includes("convenience")
+      ) ??
       toNumber(payload.convenience_charges) ??
-      amountFromBillDetails(payload.bill_details, "convenience") ??
-      amountFromBillDetails(platformInvoice?.bill_details, "convenience"),
+      amountFromBillDetailsByMatcher(payload.bill_details, (description) =>
+        description.includes("convenience")
+      ),
     total_fare:
       toNumber(payload.total_fare) ??
       toNumber(payload.total_amount) ??
@@ -532,8 +567,14 @@ export async function extractRapidoInvoice(
     ride_time: normalized.ride_time ?? null,
     pickup: normalized.pickup ?? null,
     dropoff: normalized.dropoff ?? null,
-    pickup_area: normalized.pickup_area ?? null,
-    dropoff_area: normalized.dropoff_area ?? null,
+    pickup_area:
+      normalized.pickup_area ??
+      extractArea(toText(normalized.pickup) ?? null) ??
+      null,
+    dropoff_area:
+      normalized.dropoff_area ??
+      extractArea(toText(normalized.dropoff) ?? null) ??
+      null,
     distance_km: toNumber(normalized.distance_km),
     duration_mins: toNumber(normalized.duration_mins),
     ride_charge: toNumber(normalized.ride_charge),

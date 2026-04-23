@@ -2,6 +2,7 @@ import { buildChunkText, generateEmbedding } from "@/lib/embeddings";
 import { extractRapidoInvoice } from "@/lib/docstrange";
 import { logger } from "@/lib/logger";
 import { getSupabaseAdminClient } from "@/lib/supabase";
+import type { RapidoInvoiceData } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -12,6 +13,21 @@ function getErrorMessage(error: unknown): string {
     return error.message;
   }
   return "Upload failed";
+}
+
+function isExtractionTooSparse(data: RapidoInvoiceData): boolean {
+  const criticalValues = [
+    data.ride_id,
+    data.invoice_no,
+    data.ride_date,
+    data.pickup,
+    data.dropoff,
+    data.total_fare,
+    data.payment_mode,
+    data.captain_name,
+  ];
+
+  return criticalValues.every((value) => value === null || value === "");
 }
 
 export async function POST(request: Request): Promise<Response> {
@@ -38,6 +54,19 @@ export async function POST(request: Request): Promise<Response> {
       fileSize: file.size,
     });
     const extracted = await extractRapidoInvoice(file, file.name);
+
+    if (isExtractionTooSparse(extracted)) {
+      logger.error("api.upload", "Extraction output too sparse to insert", {
+        fileName: file.name,
+      });
+      return Response.json(
+        {
+          error:
+            "Could not extract enough invoice fields from this PDF. Please retry with a clearer file.",
+        },
+        { status: 422 }
+      );
+    }
 
     logger.debug("api.upload", "Building embedding chunk text", {
       rideId: extracted.ride_id,

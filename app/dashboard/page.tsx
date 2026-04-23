@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { InvoiceDetail } from "@/components/invoice-detail";
 import { InvoiceTable } from "@/components/invoice-table";
@@ -38,51 +38,63 @@ export default function DashboardPage(): JSX.Element {
     return params.toString();
   }, [filters]);
 
-  useEffect(() => {
-    let isMounted = true;
+  const loadData = useCallback(async (): Promise<void> => {
+    setIsLoading(true);
+    setError(null);
 
-    async function loadData(): Promise<void> {
-      setIsLoading(true);
-      setError(null);
+    try {
+      const res = await fetch(`/api/invoices${queryString ? `?${queryString}` : ""}`, {
+        cache: "no-store",
+      });
+      const payload = (await res.json()) as {
+        error?: string;
+        invoices?: InvoiceRecord[];
+        stats?: DashboardStats;
+        paymentModes?: string[];
+      };
 
-      try {
-        const res = await fetch(`/api/invoices${queryString ? `?${queryString}` : ""}`);
-        const payload = (await res.json()) as {
-          error?: string;
-          invoices?: InvoiceRecord[];
-          stats?: DashboardStats;
-          paymentModes?: string[];
-        };
-
-        if (!res.ok) {
-          throw new Error(payload.error ?? "Failed to fetch invoices");
-        }
-
-        if (!isMounted) {
-          return;
-        }
-
-        setInvoices(payload.invoices ?? []);
-        setStats(payload.stats ?? EMPTY_STATS);
-        setPaymentModes(payload.paymentModes ?? []);
-      } catch (err: unknown) {
-        if (!isMounted) {
-          return;
-        }
-        setError(err instanceof Error ? err.message : "Failed to fetch invoices");
-      } finally {
-        if (isMounted) {
-          setIsLoading(false);
-        }
+      if (!res.ok) {
+        throw new Error(payload.error ?? "Failed to fetch invoices");
       }
-    }
 
+      setInvoices(payload.invoices ?? []);
+      setStats(payload.stats ?? EMPTY_STATS);
+      setPaymentModes(payload.paymentModes ?? []);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to fetch invoices");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [queryString]);
+
+  useEffect(() => {
     void loadData();
+  }, [loadData]);
+
+  useEffect(() => {
+    const onFocus = () => {
+      void loadData();
+    };
+
+    const onVisibility = () => {
+      if (!document.hidden) {
+        void loadData();
+      }
+    };
+
+    const interval = window.setInterval(() => {
+      void loadData();
+    }, 15000);
+
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
 
     return () => {
-      isMounted = false;
+      window.clearInterval(interval);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [queryString]);
+  }, [loadData]);
 
   return (
     <main className="min-h-screen bg-muted/30">
