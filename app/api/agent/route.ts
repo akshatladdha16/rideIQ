@@ -41,6 +41,7 @@ export async function POST(request: Request): Promise<Response> {
   const stream = new ReadableStream({
     async start(controller) {
       const encoder = new TextEncoder();
+      const startedAtMs = Date.now();
       let tokenEvents = 0;
       let responseChars = 0;
       let assistantResponse = "";
@@ -98,6 +99,17 @@ export async function POST(request: Request): Promise<Response> {
           }
         }
 
+        controller.enqueue(
+          encoder.encode(
+            `data: ${JSON.stringify({
+              type: "response_meta",
+              tokenEvents,
+              responseChars,
+              toolsUsed: Array.from(toolsUsed),
+              durationMs: Date.now() - startedAtMs,
+            })}\n\n`
+          )
+        );
         controller.enqueue(encoder.encode("data: [DONE]\n\n"));
         logger.info("api.agent", "Streaming agent events completed", {
           tokenEvents,

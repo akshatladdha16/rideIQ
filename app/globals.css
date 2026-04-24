@@ -65,11 +65,11 @@
   h2,
   h3,
   h4 {
-    font-family: "Space Grotesk", "Avenir Next", "Segoe UI", sans-serif;
+    font-family: "Segoe UI", "Avenir Next", "Trebuchet MS", "Helvetica Neue", Arial, sans-serif;
   }
 
   body {
-    font-family: "Source Sans 3", "Trebuchet MS", "Segoe UI", sans-serif;
+    font-family: "Segoe UI", "Helvetica Neue", Arial, "Noto Sans", sans-serif;
   }
 }
 
