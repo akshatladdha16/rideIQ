@@ -10,6 +10,23 @@ import { Textarea } from "@/components/ui/textarea";
 type ChatMessage = {
   role: "user" | "assistant";
   content: string;
+  metadata?: AssistantMetadata;
+};
+
+type ToolEvent = {
+  type: "tool_start" | "tool_end";
+  tool: string;
+  at: string;
+};
+
+type AssistantMetadata = {
+  toolsUsed: string[];
+  tokenEvents: number;
+  responseChars: number;
+  durationMs?: number;
+  startedAt: string;
+  completedAt?: string;
+  toolEvents: ToolEvent[];
 };
 
 const STARTER_PROMPTS = [
@@ -59,14 +76,46 @@ export function ChatInterface({ initialPrompt }: ChatInterfaceProps): JSX.Elemen
       return;
     }
 
-    const nextMessages: ChatMessage[] = [...messages, { role: "user", content: prompt }];
+    const startedAt = new Date().toISOString();
+    const initialMetadata: AssistantMetadata = {
+      startedAt,
+      toolsUsed: [],
+      tokenEvents: 0,
+      responseChars: 0,
+      toolEvents: [],
+    };
+
+    const nextMessages: ChatMessage[] = [
+      ...messages,
+      { role: "user", content: prompt },
+      { role: "assistant", content: "", metadata: initialMetadata },
+    ];
+    const assistantIndex = nextMessages.length - 1;
     setMessages(nextMessages);
     setInput("");
     setIsLoading(true);
     setToolStatus(null);
 
     let assistantText = "";
-    setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
+    let metadata: AssistantMetadata = initialMetadata;
+
+    const updateAssistant = (nextContent?: string): void => {
+      setMessages((prev) => {
+        const copy = [...prev];
+        const assistant = copy[assistantIndex];
+        if (!assistant || assistant.role !== "assistant") {
+          return prev;
+        }
+
+        copy[assistantIndex] = {
+          ...assistant,
+          content: nextContent ?? assistant.content,
+          metadata: { ...metadata },
+        };
+
+        return copy;
+      });
+    };
 
     try {
       const response = await fetch("/api/agent", {
@@ -108,23 +157,64 @@ export function ChatInterface({ initialPrompt }: ChatInterfaceProps): JSX.Elemen
             }
 
             const payload = JSON.parse(line) as {
-              type: "token" | "tool_start" | "error";
+              type: "token" | "tool_start" | "tool_end" | "response_meta" | "error";
               text?: string;
               tool?: string;
               message?: string;
+              tokenEvents?: number;
+              responseChars?: number;
+              toolsUsed?: string[];
+              durationMs?: number;
             };
 
             if (payload.type === "token" && payload.text) {
               assistantText += payload.text;
-              setMessages((prev) => {
-                const copy = [...prev];
-                copy[copy.length - 1] = { role: "assistant", content: assistantText };
-                return copy;
-              });
+              metadata = {
+                ...metadata,
+                tokenEvents: metadata.tokenEvents + 1,
+                responseChars: assistantText.length,
+              };
+              updateAssistant(assistantText);
             }
 
             if (payload.type === "tool_start") {
+              const toolName = payload.tool ?? "unknown";
+              metadata = {
+                ...metadata,
+                toolsUsed: metadata.toolsUsed.includes(toolName)
+                  ? metadata.toolsUsed
+                  : [...metadata.toolsUsed, toolName],
+                toolEvents: [
+                  ...metadata.toolEvents,
+                  { type: "tool_start", tool: toolName, at: new Date().toISOString() },
+                ],
+              };
+              updateAssistant();
               setToolStatus(payload.tool ? TOOL_STATUS[payload.tool] ?? "Calling tool..." : "Calling tool...");
+            }
+
+            if (payload.type === "tool_end") {
+              const toolName = payload.tool ?? "unknown";
+              metadata = {
+                ...metadata,
+                toolEvents: [
+                  ...metadata.toolEvents,
+                  { type: "tool_end", tool: toolName, at: new Date().toISOString() },
+                ],
+              };
+              updateAssistant();
+              setToolStatus(null);
+            }
+
+            if (payload.type === "response_meta") {
+              metadata = {
+                ...metadata,
+                tokenEvents: payload.tokenEvents ?? metadata.tokenEvents,
+                responseChars: payload.responseChars ?? metadata.responseChars,
+                toolsUsed: payload.toolsUsed ?? metadata.toolsUsed,
+                durationMs: payload.durationMs ?? metadata.durationMs,
+              };
+              updateAssistant();
             }
 
             if (payload.type === "error") {
@@ -132,16 +222,28 @@ export function ChatInterface({ initialPrompt }: ChatInterfaceProps): JSX.Elemen
             }
           }
         }
+
+        metadata = {
+          ...metadata,
+          completedAt: new Date().toISOString(),
+          durationMs: metadata.durationMs ?? Date.now() - new Date(metadata.startedAt).getTime(),
+        };
+        updateAssistant();
       }
     } catch (error: unknown) {
       setMessages((prev) => {
         const copy = [...prev];
-        copy[copy.length - 1] = {
+        copy[assistantIndex] = {
           role: "assistant",
           content:
             error instanceof Error
               ? `Sorry, I hit an error: ${error.message}`
               : "Sorry, I hit an unexpected error.",
+          metadata: {
+            ...metadata,
+            completedAt: new Date().toISOString(),
+            durationMs: Date.now() - new Date(metadata.startedAt).getTime(),
+          },
         };
         return copy;
       });
@@ -175,16 +277,50 @@ export function ChatInterface({ initialPrompt }: ChatInterfaceProps): JSX.Elemen
             className={`max-w-3xl rounded-xl px-4 py-3 ${
               message.role === "user"
                 ? "ml-auto bg-primary text-primary-foreground"
-                : "mr-auto border bg-background"
+                : "mr-auto border bg-background text-foreground"
             }`}
           >
             {message.role === "assistant" ? (
-              <article className="prose prose-sm max-w-none dark:prose-invert">
+              <article className="prose prose-sm max-w-none text-foreground prose-headings:text-foreground prose-p:text-foreground prose-strong:text-foreground prose-code:text-foreground prose-li:text-foreground dark:prose-invert [&_*]:break-words">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
               </article>
             ) : (
               <p className="whitespace-pre-wrap text-sm">{message.content}</p>
             )}
+
+            {message.role === "assistant" && message.metadata ? (
+              <details className="mt-3 rounded-md border border-dashed p-2 text-xs">
+                <summary className="cursor-pointer select-none text-muted-foreground">
+                  View steps and tools used
+                </summary>
+                <div className="mt-2 space-y-2 text-foreground">
+                  <p>
+                    Tools: {message.metadata.toolsUsed.length > 0 ? message.metadata.toolsUsed.join(", ") : "None"}
+                  </p>
+                  <p>
+                    Tokens streamed: {message.metadata.tokenEvents} | Characters: {message.metadata.responseChars}
+                    {typeof message.metadata.durationMs === "number"
+                      ? ` | Duration: ${(message.metadata.durationMs / 1000).toFixed(1)}s`
+                      : ""}
+                  </p>
+                  <div>
+                    <p className="mb-1 font-medium">Tool timeline</p>
+                    {message.metadata.toolEvents.length > 0 ? (
+                      <ul className="space-y-1">
+                        {message.metadata.toolEvents.map((event, eventIndex) => (
+                          <li key={`${event.at}-${eventIndex}`}>
+                            {new Date(event.at).toLocaleTimeString()} - {event.type === "tool_start" ? "Start" : "End"}:{" "}
+                            {event.tool}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-muted-foreground">No tools called.</p>
+                    )}
+                  </div>
+                </div>
+              </details>
+            ) : null}
           </div>
         ))}
 
